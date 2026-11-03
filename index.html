@@ -56,7 +56,15 @@ label{font-size:12px;display:block;margin-bottom:2px}
 const KEY='natsumi-point-v1';
 const defaults=()=>({chores:[{id:1,name:'マッサージ',minutes:20,base:100,mults:[1,2,3]}],rewards:[{id:1,name:'UFOキャッチャー1回(100円)',cost:100}],history:[],nextId:2});
 let S;try{S=JSON.parse(localStorage.getItem(KEY))||defaults()}catch(e){S=defaults()}
-const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
+// 保存: localStorage + IndexedDB(二重保存)。ブラウザに消されにくいよう永続化も要求
+const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('natsumi-point',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej()});
+const idbPut=v=>idb().then(d=>{d.transaction('kv','readwrite').objectStore('kv').put(v,KEY)}).catch(()=>{});
+const idbGet=()=>idb().then(d=>new Promise(res=>{const q=d.transaction('kv').objectStore('kv').get(KEY);q.onsuccess=()=>res(q.result);q.onerror=()=>res()})).catch(()=>{});
+let warned=false;
+const save=()=>{const j=JSON.stringify(S);try{localStorage.setItem(KEY,j)}catch(e){if(!warned){warned=true;alert('保存に失敗しました。プライベートモードでないか確認してください')}}idbPut(j)};
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+// localStorageが空でIndexedDBに残っていれば復元
+if(!localStorage.getItem(KEY))idbGet().then(v=>{if(v){try{S=JSON.parse(v);localStorage.setItem(KEY,v);render()}catch(e){}}});
 const balance=()=>S.history.reduce((a,h)=>a+h.pts,0);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let tab='chores',editing=false;
@@ -86,7 +94,7 @@ function render(){
   if(tab=='chores')h=`<h2>🧹 お手伝いをしたらタップ!</h2>`+editBar('chores')+(S.chores.map(choreCard).join('')||'<div class="empty">お手伝いを追加してね</div>');
   else if(tab=='rewards')h=`<h2>🎁 ご褒美とこうかん</h2>`+editBar('rewards')+(S.rewards.map(rewardCard).join('')||'<div class="empty">ご褒美を追加してね</div>');
   else if(tab=='history')h=`<h2>📒 きろく</h2><div class="card">`+(S.history.length?S.history.slice(0,100).map(x=>`<div class="hist"><div><div>${esc(x.name)}</div><div class="sub">${fmt(x.t)}</div></div><div><span class="${x.pts>0?'plus':'minus'}">${x.pts>0?'+':''}${x.pts}</span> <button class="gray small" onclick="undo(${x.id})">取消</button></div></div>`).join(''):'<div class="empty">まだ記録がありません</div>')+`</div>`;
-  else h=`<h2>⚙️ せってい</h2><div class="card"><div class="sub" style="margin-bottom:8px">お手伝い・ご褒美の内容やポイントは「お手伝い」「ご褒美」タブの「へんしゅう」からいつでも変えられます。</div><button class="mint small" onclick="exportData()">📤 バックアップを保存</button> <button class="yellow small" onclick="document.getElementById('imp').click()">📥 バックアップを読み込む</button><input type="file" id="imp" accept=".json" hidden onchange="importData(this.files[0])"><div style="height:12px"></div><button class="gray small" onclick="resetAll()">🗑 全部リセット</button></div>`;
+  else h=`<h2>⚙️ せってい</h2><div class="card"><div class="sub" style="margin-bottom:8px">データはこのスマホの中だけに保存されます(同じブラウザで開いてください)。お手伝い・ご褒美の内容やポイントは「お手伝い」「ご褒美」タブの「へんしゅう」からいつでも変えられます。</div><button class="mint small" onclick="exportData()">📤 バックアップを保存</button> <button class="yellow small" onclick="document.getElementById('imp').click()">📥 バックアップを読み込む</button><input type="file" id="imp" accept=".json" hidden onchange="importData(this.files[0])"><div style="height:12px"></div><button class="gray small" onclick="resetAll()">🗑 全部リセット</button></div>`;
   document.getElementById('main').innerHTML=h;
 }
 function exportData(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));a.download='otetsudai-backup.json';a.click()}
